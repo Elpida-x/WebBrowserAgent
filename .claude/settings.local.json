@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python \"C:/Users/XXX/AppData/Local/Temp/claude/D--VScodeProjects-WebBrowserAgent/81633196-35c7-42d3-9c65-e4d3261505c6/scratchpad/jscheck3.py\")"
+    ]
+  }
+}

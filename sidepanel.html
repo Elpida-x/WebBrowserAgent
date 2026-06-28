@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Browser Agent</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="brand">
+        <span class="logo">🧭</span>
+        <span>Web Browser Agent</span>
+      </div>
+      <button id="settingsBtn" class="icon-btn" title="Settings">⚙️</button>
+    </header>
+
+    <section id="settings" class="settings hidden">
+      <label>
+        DeepSeek API Key
+        <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+      </label>
+      <label>
+        Model
+        <input id="model" type="text" placeholder="deepseek-v4-flash" />
+      </label>
+      <label>
+        API Base URL
+        <input id="baseUrl" type="text" placeholder="https://api.deepseek.com" />
+      </label>
+      <label>
+        Max steps
+        <input id="maxSteps" type="number" min="1" max="100" />
+      </label>
+      <label class="checkbox">
+        <input id="newTab" type="checkbox" />
+        在新标签页中运行任务（不影响当前页面）
+      </label>
+      <div class="settings-actions">
+        <button id="saveSettings" class="btn primary">Save</button>
+        <span id="settingsStatus" class="hint"></span>
+      </div>
+      <p class="hint">
+        Get a key at platform.deepseek.com. Stored locally in your browser only.
+      </p>
+    </section>
+
+    <main id="log" class="log">
+      <div class="empty" id="emptyState">
+        <p>Tell me what to do on the web and I'll plan and act on the current tab.</p>
+        <ul class="examples">
+          <li>Find the submission deadline for NeurIPS 2026</li>
+          <li>Search Wikipedia for the population of Tokyo</li>
+          <li>On this page, find and summarize the pricing tiers</li>
+        </ul>
+      </div>
+    </main>
+
+    <footer class="composer">
+      <textarea
+        id="taskInput"
+        rows="2"
+        placeholder="Describe a task… (Enter to send, Shift+Enter for newline)"
+      ></textarea>
+      <div class="composer-actions">
+        <button id="runBtn" class="btn primary">Run</button>
+        <button id="stopBtn" class="btn danger hidden">Stop</button>
+      </div>
+    </footer>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
