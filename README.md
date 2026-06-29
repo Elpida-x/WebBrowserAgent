@@ -1,272 +1,208 @@
-# Web Browser Agent 🧭
+# Web Browser Agent 🧭（浏览器自主操作助手）
 
-**English** | [中文](README.zh-CN.md)
+[English](README.md) ｜ **中文**
 
-An autonomous web-browsing assistant, packaged as a **Chrome (Manifest V3) extension**.
-You give it a task in plain language from a side-panel chat; it **understands the
-goal, perceives the page, plans steps, navigates and acts in the browser, and
-returns a result** — pausing to ask you only when it needs a human (login, a
-blocked action, or confirmation of something irreversible).
+本项目是一个打包为 **Chrome（Manifest V3）扩展**的自主网页操作助手。用户在侧边栏以**自然语言**下达任务，该扩展即可**理解目标、感知网页、自主规划、在浏览器中导航与操作，并返回执行结果**；仅在确需人工介入时（登录、操作被网站拦截、或执行不可逆操作）才弹窗征询用户。
 
-It uses **DeepSeek** for reasoning (OpenAI-compatible function calling) and a
-**DOM accessibility-tree** approach for perception: the page's interactive
-elements (across the top frame *and* iframes) are enumerated into one numbered
-list, and the agent clicks/types by index — fast, robust, low token cost.
+系统采用 **DeepSeek** 进行推理（OpenAI 兼容的 function calling），并以 **DOM 无障碍树**进行感知：将页面（含顶层页面与 iframe 内部）的可交互元素汇聚为一份带编号的列表，Agent 按编号进行点击与输入——速度快、稳定性好、token 开销低。
 
-> Quickstart is in [INSTALL.md](INSTALL.md) · 中文说明见 [README.zh-CN.md](README.zh-CN.md)
+> 安装与快速上手见 [INSTALL.md](INSTALL.md)；English documentation: [README.md](README.md)。
 
 ---
 
-## Table of contents
+## 目录
 
-- [Overview](#overview)
-- [Features](#features)
-- [How it works](#how-it-works)
-- [The tool set](#the-tool-set)
-- [Project structure](#project-structure)
-- [Install & configure](#install--configure)
-- [Usage & examples](#usage--examples)
-- [Security & privacy](#security--privacy)
-- [Limitations](#limitations)
-- [Extending](#extending)
-- [Tech stack](#tech-stack)
-- [Development trajectory](#development-trajectory)
-
----
-
-## Overview
-
-The agent runs a **perceive → plan → act → observe** loop entirely inside your
-browser. Each step it reads the current page into a structured observation, sends
-it to DeepSeek together with a set of tool definitions, receives the next
-action(s) as tool calls, executes them on the tab, and feeds the result back —
-until it calls `done` with an answer. There is **no backend server**; the model
-is called directly from the extension with your own API key.
+- [概述](#概述)
+- [功能特性](#功能特性)
+- [工作原理](#工作原理)
+- [工具集](#工具集)
+- [项目结构](#项目结构)
+- [安装与配置](#安装与配置)
+- [使用与示例](#使用与示例)
+- [安全与隐私](#安全与隐私)
+- [已知限制](#已知限制)
+- [二次开发](#二次开发)
+- [技术栈](#技术栈)
+- [开发轨迹](#开发轨迹)
 
 ---
 
-## Features
+## 概述
 
-### 🧠 Perception (how it "sees" the page)
-- **DOM accessibility tree** — visible interactive elements (links, buttons,
-  inputs, selects, `role=*`, etc.) are enumerated into a numbered list with concise
-  labels; the agent acts by index.
-- **iframe-aware** — every step merges the top frame and all child frames into one
-  global element list (capped at 15 frames / 150 elements for cost), so it can act
-  on content inside embedded apps and forms.
-- **Page-text preview** — each observation includes a short snippet of the page's
-  text so the agent can "read first" and often answer without extra clicks.
-- **On-action highlight** — only the element the agent actually clicks/types into
-  is briefly outlined on screen, so you can follow what it's doing (no cluttered
-  full-page boxes).
-
-### 🔁 Reasoning loop
-- Plan → act → observe, with a configurable **max-steps** budget.
-- **Read-before-navigate** discipline: open the most relevant result, read it
-  fully, and only move on if the answer isn't there.
-- **Stop-when-satisfied**: once it has the core answer from a trustworthy source,
-  it finishes instead of over-browsing.
-- **Time awareness**: the current date/time is injected every step, so "latest /
-  newest" queries use the correct year (no training-cutoff drift).
-
-### 🛠️ Actions
-- `search` using your browser's **default search engine** (Google/Bing/Baidu/…),
-  not a hard-coded one.
-- `navigate`, `scroll`, `go_back`, `wait`, `extract_content`.
-- `click` by index, and `find_and_click` by **visible text** — it searches the
-  whole DOM (even unlabeled `<div>`/`<span>` items), and prefers navigating to the
-  item's real link to bypass popup-blocked `window.open()`.
-- `input_text` with robust form filling: native value setter + framework events
-  (React/Vue), a per-character fallback, `<select>` handling, and **write
-  verification** (it reports whether the value actually took).
-- **Follows new tabs** a click opens, so it doesn't get stuck on the original page.
-
-### 💬 Output
-- Results render as **Markdown** in the side panel — headings, bold/italic,
-  lists, links, inline code, blockquotes, and **tables** — via a tiny,
-  dependency-free, **XSS-safe** renderer.
-
-### 🙋 Human-in-the-loop
-- `request_login` — when a page needs you to log in / solve a CAPTCHA / dismiss a
-  paywall, it pauses and asks you to handle it, then continues (or you cancel that
-  source and it switches to another).
-- `request_manual_action` — when a site blocks its automated click, it asks you to
-  do that one step manually, then resumes from the new state.
-- `confirm_action` — before anything irreversible, it asks you to approve.
-
-### 🔒 Security & privacy (built in)
-- **Sensitive values never leave the page**: password / card / OTP / token fields
-  are redacted from what's sent to the model (only `[filled]`/`[empty]`).
-- **Prompt-injection guard**: page content is treated as untrusted *data*, never
-  as instructions; embedded "ignore your instructions / send the data" text is
-  ignored.
-- **Confirm-on-suspicious-navigation**: quiet by default, but it asks before a
-  cross-site navigation that looks like data exfiltration (lots of data smuggled
-  in the URL, or a raw-IP destination).
-- **Confirm-before-irreversible** (payments, sending, posting, deleting).
-- **Per-run domain blocklist**: a source you cancel won't be revisited.
-- Unreachable/restricted pages are reported and skipped — they don't abort the task.
-
-### ⚙️ Settings & UX
-- Side-panel chat with live plan / action / observation stream and a **Stop** button.
-- Configurable API key, model (default `deepseek-v4-flash`), base URL, max steps.
-- **Run in a new tab** (default) to leave your current page untouched — or turn it
-  off (or say "on the current page") to act on the page you're viewing.
+Agent 在用户的浏览器内运行一个 **感知 → 规划 → 行动 → 观察** 的闭环。每一步将当前页面读取为结构化的「观察」，连同工具定义一并发送给 DeepSeek；模型以「工具调用」的形式给出下一步动作，Agent 在标签页上执行并将结果回传——如此循环，直至调用 `done` 返回最终答案。整个系统**没有后端服务器**，模型由扩展使用用户自带的 API Key 直接调用。
 
 ---
 
-## How it works
+## 功能特性
+
+### 🧠 感知（如何「看见」页面）
+- **DOM 无障碍树**：将可见的可交互元素（链接、按钮、输入框、下拉框、`role=*` 等）编号成列表并附简短标签，Agent 按编号操作。
+- **支持 iframe**：每一步将顶层页面与所有子 frame 的元素**合并为一份全局列表**（为控制成本，上限为 15 个 frame、150 个元素），因此可操作嵌入式应用与表单中的元素。
+- **正文预览**：每次观察附带一小段页面文本，使 Agent **先读后动**，多数情况下无需点击即可作答。
+- **动作即高亮**：仅在 Agent **实际点击或输入**的那一个元素上短暂描边，便于用户跟随其操作。
+
+### 🔁 推理闭环
+- 规划 → 行动 → 观察，**最大步数**可配置。
+- **先读后跳**：先打开最相关的结果并读取完毕，确认无所需信息后再切换页面。
+- **达成即止**：从可信来源获得核心答案后即收尾，避免过度浏览。
+- **时间感知**：每步注入当前日期时间，使「最新 / 最近」类查询采用**正确的年份**，不受模型训练截止时间影响。
+
+### 🛠️ 行动能力
+- `search`：使用**浏览器的默认搜索引擎**（Google、Bing、Baidu 等），而非写死某一个。
+- `navigate`、`scroll`、`go_back`、`wait`、`extract_content`。
+- 按编号 `click`，以及按**可见文字** `find_and_click`——后者会搜索整个 DOM（连未编号的 `<div>`、`<span>` 也能命中），并优先**跳转至该项的真实链接**，以绕过被弹窗拦截的 `window.open()`。
+- `input_text` 提供健壮的表单填写：原生 value setter + 框架事件（React、Vue）+ 逐字符兜底 + `<select>` 处理 + **写入校验**（回报数值是否真正写入）。
+- **自动跟随**点击所打开的新标签页，避免停滞在原页面。
+
+### 💬 输出
+- 执行结果在侧边栏以 **Markdown** 渲染——支持标题、加粗、斜体、列表、链接、行内代码、引用与**表格**——由一个零依赖、**防 XSS** 的渲染器实现。
+
+### 🙋 人在回路
+- `request_login`：当页面需要登录、通过验证码或关闭付费墙时，暂停并交由用户处理，随后继续（或由用户取消该来源，改用其他渠道）。
+- `request_manual_action`：当网站拦截了自动点击时，请用户手动完成该步骤，再从新状态继续执行。
+- `confirm_action`：在执行任何不可逆操作前，先弹窗请用户确认。
+
+### 🔒 内建安全与隐私
+- **敏感值不出页面**：密码、银行卡、验证码、token 等字段的值会被**脱敏**，不发送给模型（仅发送 `[filled]` / `[empty]`）。
+- **提示词注入护栏**：页面内容一律视为**不可信数据**而非指令；页面中夹带的「忽略指令 / 将数据发送出去」等内容会被忽略。
+- **可疑跳转方才确认**：默认静默，仅当跨站跳转**疑似数据外泄**（URL 中夹带大量数据，或目标为纯 IP 地址）时才弹窗确认。
+- **不可逆操作前确认**（支付、发送、发帖、删除等）。
+- **本次会话域名黑名单**：用户取消过的来源在本次任务中不再访问。
+- 无法访问或受限的页面会被**上报并跳过**，不会中断整个任务。
+
+### ⚙️ 设置与体验
+- 侧边栏对话，实时展示 计划 / 动作 / 观察，并提供 **Stop** 按钮。
+- 可配置 API Key、模型（默认 `deepseek-v4-flash`）、Base URL、最大步数。
+- **在新标签页中运行**（默认），不干扰用户当前页面；亦可关闭该选项（或在任务中注明「在当前页面」），使其操作用户正在浏览的页面。
+
+---
+
+## 工作原理
 
 ```
- sidepanel.js  ── drives ──▶  Agent (src/agent.js)
-   (chat UI)                      │
-                    perceive ┌────┴────┐ act
-                             ▼         ▼
+ sidepanel.js  ── 驱动 ──▶  Agent (src/agent.js)
+   (对话界面)                   │
+                    感知 ┌──────┴──────┐ 行动
+                         ▼             ▼
               content/content.js   chrome.tabs / scripting / search
-              (per-frame element    (navigate, inject, default-engine
-               map + actions)        search, follow new tabs)
+              (按帧的元素表 +        (导航、注入、默认引擎搜索、
+               动作执行)            跟随新标签页)
                                   │
-                             plan ▼
-                           src/llm.js ──▶ DeepSeek chat/completions (tool calls)
+                              规划 ▼
+                           src/llm.js ──▶ DeepSeek chat/completions（工具调用）
 ```
 
-Each loop step:
+每个循环步骤：
 
-1. **Perceive** — `getState()` enumerates frames, asks each frame's content script
-   for its elements + text, and merges them into one numbered observation.
-2. **Plan** — the observation + tool schemas (`src/tools.js`) + system prompt
-   (`src/prompt.js`) go to DeepSeek; it replies with tool calls.
-3. **Act** — `search`/`navigate`/`wait` and the human-in-the-loop tools run in the
-   side panel; `click`/`input_text`/`find_and_click`/`scroll`/`extract_content`
-   are routed to the right frame's content script.
-4. **Observe** — the result is returned as a `tool` message; the loop repeats until
-   the model calls `done`.
+1. **感知**：`getState()` 枚举所有 frame，向每个 frame 的内容脚本请求其元素与文本，合并为一份带编号的观察。
+2. **规划**：观察 + 工具定义（`src/tools.js`）+ 系统提示（`src/prompt.js`）发送给 DeepSeek，模型返回工具调用。
+3. **行动**：`search`、`navigate`、`wait` 及人在回路类工具在侧边栏执行；`click`、`input_text`、`find_and_click`、`scroll`、`extract_content` 则路由至对应 frame 的内容脚本。
+4. **观察**：执行结果作为 `tool` 消息回传，循环直至模型调用 `done`。
 
 ---
 
-## The tool set
+## 工具集
 
-| Tool | What it does |
-|------|--------------|
-| `search` | Search via the browser's **default** search engine; results load in the tab. |
-| `navigate` | Open a URL (search-engine URLs are rerouted to the default engine; suspicious cross-site URLs are confirmed). |
-| `click` | Click the element at an index (full pointer+mouse sequence). |
-| `find_and_click` | Find an element by visible text and open it (prefers its real link). |
-| `input_text` | Type into a field (verified; sensitive values redacted) with optional submit. |
-| `scroll` / `go_back` / `wait` | Reveal content / browser back / pause for loads. |
-| `extract_content` | Read the page's text (aggregated across frames). |
-| `request_login` | Ask the user to log in / solve a CAPTCHA, then continue or cancel the source. |
-| `request_manual_action` | Ask the user to perform a blocked step manually, then resume. |
-| `confirm_action` | Ask the user to approve an irreversible action. |
-| `done` | Finish and return the result (or explain why it can't). |
-
----
-
-## Project structure
-
-| Path | Role |
+| 工具 | 作用 |
 |------|------|
-| `manifest.json` | MV3 config: side panel, content script (all frames), permissions |
-| `background.js` | Service worker — opens the side panel on the toolbar click |
-| `content/content.js` | Per-frame perception (element map, page text) + action execution |
-| `src/agent.js` | The perceive→plan→act→observe loop, frame routing, guards |
-| `src/llm.js` | DeepSeek chat-completions client (tool calling) |
-| `src/prompt.js` | Web-agent system prompt (behavior + safety rules) |
-| `src/tools.js` | Tool/function schemas advertised to the model |
-| `src/markdown.js` | Dependency-free, XSS-safe Markdown→HTML renderer |
-| `sidepanel.html/.css/.js` | Chat UI, settings, human-in-the-loop dialogs |
-| `icons/` | Toolbar / store icons (16/48/128) |
-| `dist/` | Pre-built distributable ZIP (unzip, then Load unpacked) |
-| `INSTALL.md` | Install & run guide with screenshots (Chinese) |
-| `demo/` | Demo form page (`demo-form.html`) + screen-recording script for the demo video |
-| `trajectory/` | Full Claude Code development transcripts (raw + readable) |
+| `search` | 以浏览器的**默认**搜索引擎检索，结果加载至标签页。 |
+| `navigate` | 打开 URL（搜索引擎 URL 会改走默认引擎；可疑跨站 URL 会先确认）。 |
+| `click` | 点击指定编号的元素（完整的 pointer、mouse 事件序列）。 |
+| `find_and_click` | 按可见文字定位元素并打开（优先走其真实链接）。 |
+| `input_text` | 向字段输入（带校验、敏感值脱敏），可选回车提交。 |
+| `scroll` / `go_back` / `wait` | 展开内容 / 浏览器后退 / 等待加载。 |
+| `extract_content` | 读取页面正文（跨 frame 聚合）。 |
+| `request_login` | 请用户登录或通过验证码，随后继续或取消该来源。 |
+| `request_manual_action` | 请用户手动完成被拦截的步骤，再继续执行。 |
+| `confirm_action` | 请用户确认一项不可逆操作。 |
+| `done` | 收尾并返回结果（或说明无法完成的原因）。 |
 
 ---
 
-## Install & configure
+## 项目结构
 
-**Load unpacked** (full steps with screenshots in [INSTALL.md](INSTALL.md)):
-
-1. Open `chrome://extensions` (Chrome / Edge / Brave, **version ≥ 114**).
-2. Enable **Developer mode**, click **Load unpacked**, select the folder containing
-   `manifest.json`.
-3. Open the side panel (toolbar icon) → ⚙️ → paste your **DeepSeek API key**
-   (from [platform.deepseek.com](https://platform.deepseek.com)) → **Save**.
-
-The key is stored only in `chrome.storage.local` and is sent only to the DeepSeek
-API. A pre-built ZIP for distribution is provided in `dist/` — unzip it and Load
-unpacked.
-
----
-
-## Usage & examples
-
-Type a task in the side panel and press **Run** (Enter sends, Shift+Enter newline;
-**Stop** halts). You'll see the plan, each action/observation, and the final result.
-
-- *"Find the latest price of the iPhone 17 Pro."*
-- *"Find the submission deadlines for NeurIPS 2026 and list them."*
-- *"On the current page, fill column A with 3 incrementing student IDs."*
-- *"Open the AcWing notes in my Feishu docs."*
-- *"Search this shop for wireless headphones under ¥500 and list the top 3."*
+| 路径 | 作用 |
+|------|------|
+| `manifest.json` | MV3 配置：侧边栏、内容脚本（所有 frame）、权限 |
+| `background.js` | Service Worker——点击工具栏图标打开侧边栏 |
+| `content/content.js` | 按帧的感知（元素表、页面文本）与页内动作执行 |
+| `src/agent.js` | 感知→规划→行动→观察 主循环、帧路由与各类防护 |
+| `src/llm.js` | DeepSeek chat-completions 客户端（工具调用） |
+| `src/prompt.js` | Web Agent 系统提示词（行为与安全规则） |
+| `src/tools.js` | 提供给模型的工具 / 函数 schema |
+| `src/markdown.js` | 零依赖、防 XSS 的 Markdown→HTML 渲染器 |
+| `sidepanel.html/.css/.js` | 对话界面、设置、人在回路弹窗 |
+| `icons/` | 工具栏 / 商店图标（16/48/128） |
+| `dist/` | 预打包好的可分发 ZIP（解压后「加载已解压」） |
+| `INSTALL.md` | 含截图的安装与运行说明（中文） |
+| `demo/` | 演示用表单页（`demo-form.html`）与录屏演示脚本 |
+| `trajectory/` | 完整的 Claude Code 开发轨迹（原始记录与可读导出） |
 
 ---
 
-## Security & privacy
+## 安装与配置
 
-- **Your API key** stays in `chrome.storage.local`; it's only used as the auth
-  header to DeepSeek.
-- **Page content is sent to DeepSeek** (it must read pages to act), but **secret
-  field values are redacted** before sending, and the agent is instructed to never
-  put your data into outbound URLs/forms.
-- **The page cannot hijack the extension**: content scripts run in an isolated
-  world, the extension exposes no page-facing message channel, and it holds no
-  `cookies` permission. The realistic risk is *prompt injection* (a hostile page
-  steering the model) — mitigated by the injection guard, irreversible-action
-  confirmation, and suspicious-navigation confirmation, but not 100% eliminated.
-- **Advice:** don't run the agent on unknown/untrusted sites while also logged into
-  sensitive accounts; the default "new tab" mode helps isolate it.
+**加载已解压扩展**（含截图的完整步骤见 [INSTALL.md](INSTALL.md)）：
+
+1. 打开 `chrome://extensions`（Chrome / Edge / Brave，**版本 ≥ 114**）。
+2. 开启**开发者模式** → **加载已解压的扩展程序** → 选择包含 `manifest.json` 的文件夹。
+3. 打开侧边栏（工具栏图标）→ ⚙️ → 粘贴 **DeepSeek API Key**（在 [platform.deepseek.com](https://platform.deepseek.com) 获取）→ **Save**。
+
+API Key 仅保存于 `chrome.storage.local`，且仅用于调用 DeepSeek。`dist/` 目录已提供打包好的可分发 ZIP——解压后执行「加载已解压」即可。
 
 ---
 
-## Limitations
+## 使用与示例
 
-- **Single-focus**: works on one tab at a time (it follows a new tab a click opens,
-  but doesn't orchestrate many tabs in parallel).
-- **Canvas-rendered UIs** (online spreadsheets, maps) are outside DOM perception —
-  they'd need a vision mode.
-- **Hardened anti-automation sites** may reject synthetic clicks entirely; the
-  agent falls back to asking you to do that step manually.
-- **Token cost**: large pages are capped (≤150 elements, ≤6000 chars on extract,
-  ≤15 frames) to control cost.
+在侧边栏输入任务并按 **Run**（回车发送，Shift+回车换行；**Stop** 中止）。用户将看到计划、每一步的动作与观察，以及最终结果。
 
----
+- 「查找 iPhone 17 Pro 的最新价格。」
+- 「查找 NeurIPS 2026 的投稿截稿日期并列出。」
+- 「在当前页面，将 A 列按学号递增填写 3 行。」
+- 「打开飞书云文档中的 AcWing 笔记。」
+- 「在该商城检索 500 元以下的无线耳机，列出前 3 项。」
 
-## Extending
-
-- **New action:** add a schema in `src/tools.js`, then handle it in
-  `content/content.js` (`doAction`) or `src/agent.js` (`executeTool`) if it needs
-  `chrome.*` APIs.
-- **Different model/provider:** `src/llm.js` is a thin OpenAI-compatible client —
-  point `baseUrl` at any compatible endpoint.
-- **Vision hybrid:** add `chrome.tabs.captureVisibleTab` and send screenshots to a
-  vision model as an on-demand fallback when DOM perception fails (recommended:
-  capture only when needed, keep only the latest image, downscale).
+执行过程中会依次呈现：计划 → 每一步的动作 / 观察 → 最终结果。当遇到需要登录、被网站拦截、或需执行不可逆操作（提交 / 支付 / 发送）时，会**弹窗请用户确认或接管**。
 
 ---
 
-## Tech stack
+## 安全与隐私
 
-- **Chrome Extension Manifest V3** — side panel, content scripts (all frames),
-  service worker, `chrome.{tabs,scripting,search,storage}`.
-- **Vanilla JavaScript (ES modules)** — no build step, no runtime dependencies.
-- **DeepSeek API** — OpenAI-compatible `chat/completions` with function calling.
+- **API Key** 仅保存于 `chrome.storage.local`，且仅作为调用 DeepSeek 的鉴权头使用。
+- **页面内容会发送给 DeepSeek**（读取页面是其执行任务的前提），但发送前会对**敏感字段的值进行脱敏**，且系统提示词要求 Agent 绝不将用户数据塞入对外的 URL 或表单。
+- **页面无法劫持扩展**：内容脚本运行于隔离世界（isolated world），扩展未对页面开放任何消息通道，且不持有 `cookies` 权限。现实风险主要为「提示词注入」（恶意页面诱导模型）——已通过注入护栏、不可逆操作确认、可疑跳转确认予以缓解，但**无法 100% 杜绝**。
+- **使用建议**：不建议在登录敏感账号的同时让 Agent 访问不明或不可信网站；默认的「新标签页」模式有助于隔离。
 
 ---
 
-## Development trajectory
+## 已知限制
 
-The complete Claude Code development history is preserved under
-[`trajectory/`](trajectory/): raw session transcripts (`trajectory/raw/*.jsonl`)
-plus a readable Markdown export (`trajectory/session-*.md`, regenerable via
-`trajectory/export_transcript.py`).
+- **单焦点**：一次仅在一个标签页工作（会跟随点击打开的新标签页，但不并行编排多标签）。
+
+- **Canvas 渲染的界面**（在线表格、地图等）位于 DOM 感知之外，需要视觉模式支持。
+
+- **强反自动化的站点**可能完全拒绝合成点击；此时 Agent 会退回到「请用户手动完成该步骤」。
+
+- **Token 成本**：对大页面设有上限（元素 ≤150、正文提取 ≤6000 字、frame ≤15）以控制成本。
+
+---
+
+## 二次开发
+
+- **新增动作**：在 `src/tools.js` 添加 schema，随后在 `content/content.js`（`doAction`）实现；若需调用 `chrome.*` API，则在 `src/agent.js`（`executeTool`）中处理。
+- **更换模型 / 厂商**：`src/llm.js` 是一个很薄的 OpenAI 兼容客户端，将 `baseUrl` 指向任意兼容接口即可。
+- **视觉混合感知**：引入 `chrome.tabs.captureVisibleTab`，在 DOM 感知失败时**按需**将截图发送给视觉模型（建议：仅在必要时截图、仅保留最新一张、并先行缩放）。
+
+---
+
+## 技术栈
+
+- **Chrome 扩展 Manifest V3**：侧边栏、内容脚本（所有 frame）、Service Worker、`chrome.{tabs,scripting,search,storage}`。
+- **原生 JavaScript（ES 模块）**：无构建步骤、无运行时依赖。
+- **DeepSeek API**：OpenAI 兼容的 `chat/completions` 与 function calling。
+
+---
+
+## 开发轨迹
+
+完整的 Claude Code 开发记录保存于 [`trajectory/`](trajectory/)：原始会话记录（`trajectory/raw/*.jsonl`），以及可读的 Markdown 导出（`trajectory/session-*.md`，可通过 `trajectory/export_transcript.py` 重新生成）。
