@@ -1,6 +1,6 @@
 # Web Browser Agent 🧭
 
-**English** | [中文](README.zh-CN.md)
+**English** | [中文](README.md)
 
 An autonomous web-browsing assistant, packaged as a **Chrome (Manifest V3) extension**.
 You give it a task in plain language from a side-panel chat; it **understands the
@@ -13,7 +13,7 @@ It uses **DeepSeek** for reasoning (OpenAI-compatible function calling) and a
 elements (across the top frame *and* iframes) are enumerated into one numbered
 list, and the agent clicks/types by index — fast, robust, low token cost.
 
-> Quickstart is in [INSTALL.md](INSTALL.md) · 中文说明见 [README.zh-CN.md](README.zh-CN.md)
+> Quickstart is in [INSTALL.md](INSTALL.md) · 中文说明见 [README.md](README.md)
 
 ---
 

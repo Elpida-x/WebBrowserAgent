@@ -1,12 +1,12 @@
 # Web Browser Agent 🧭（浏览器自主操作助手）
 
-[English](README.md) ｜ **中文**
+[English](README.en.md) ｜ **中文**
 
 本项目是一个打包为 **Chrome（Manifest V3）扩展**的自主网页操作助手。用户在侧边栏以**自然语言**下达任务，该扩展即可**理解目标、感知网页、自主规划、在浏览器中导航与操作，并返回执行结果**；仅在确需人工介入时（登录、操作被网站拦截、或执行不可逆操作）才弹窗征询用户。
 
 系统采用 **DeepSeek** 进行推理（OpenAI 兼容的 function calling），并以 **DOM 无障碍树**进行感知：将页面（含顶层页面与 iframe 内部）的可交互元素汇聚为一份带编号的列表，Agent 按编号进行点击与输入——速度快、稳定性好、token 开销低。
 
-> 安装与快速上手见 [INSTALL.md](INSTALL.md)；English documentation: [README.md](README.md)。
+> 安装与快速上手见 [INSTALL.md](INSTALL.md)；English documentation: [README.en.md](README.en.md)。
 
 ---
 
